@@ -230,7 +230,6 @@ def main() -> None:
     miner = PearlMiner()
     idle_since: Optional[float] = None
     last_mode: Optional[str] = None
-    gate_opened_for_busy = False
 
     while True:
         try:
@@ -238,7 +237,6 @@ def main() -> None:
             if not dual.get("enabled"):
                 if miner.running:
                     miner.stop()
-                gate_opened_for_busy = False
                 if last_mode != "disabled":
                     LOG.info("dual_mining disabled in config; controller idle")
                     last_mode = "disabled"
@@ -264,15 +262,13 @@ def main() -> None:
                 idle_since = None
                 if miner.running:
                     miner.stop()
-                if not gate_opened_for_busy:
+                if not dual.get("gate_open"):
                     open_gate()
-                    gate_opened_for_busy = True
                     LOG.info("Opened inference gate for Crynux task")
                 last_mode = "busy"
             else:
-                if gate_opened_for_busy or dual.get("gate_open"):
+                if dual.get("gate_open"):
                     close_gate()
-                    gate_opened_for_busy = False
                 now = time.monotonic()
                 if idle_since is None:
                     idle_since = now
