@@ -26,6 +26,42 @@ WILDRIG_WORKDIR = os.environ.get("WILDRIG_WORKDIR", "/tmp/wildrig")
 
 DEFAULT_POOL = "stratum+tcp://pool.pearlhash.xyz:9000"
 
+# /manager/v1/tasks statuses that still need the GPU for Crynux work.
+_GPU_BUSY_STATUSES = frozenset(
+    {
+        "Started",
+        "ParametersUploaded",
+        "Queued",
+        "unavailable",
+    }
+)
+
+# /manager/v1/tasks statuses where Crynux no longer needs the GPU.
+_GPU_FREE_STATUSES = frozenset(
+    {
+        "none",
+        "stopped",
+        "ScoreReady",
+        "Validated",
+        "GroupValidated",
+        "EndInvalidated",
+        "ErrorReported",
+        "EndSuccess",
+        "EndAborted",
+        "EndGroupRefund",
+        "EndGroupSuccess",
+    }
+)
+
+
+def crynux_needs_gpu(status: Optional[str]) -> bool:
+    """Return True when Pearl must stop so Crynux can use the GPU."""
+    if status in _GPU_BUSY_STATUSES:
+        return True
+    if status in _GPU_FREE_STATUSES:
+        return False
+    return True
+
 
 def _http_json(method: str, path: str, body: Optional[dict] = None) -> Any:
     data = None if body is None else json.dumps(body).encode("utf-8")
@@ -257,15 +293,15 @@ def main() -> None:
             idle_grace = float(dual.get("idle_grace_sec") or 2.0)
             tasks = get_task_stats()
             status = tasks.get("status")
-            # Only Crynux inference busy needs the GPU. idle and stopped both mine.
-            if status == "running":
+            # Only Crynux GPU-using phases stop Pearl; ScoreReady and later can mine.
+            if crynux_needs_gpu(status):
                 idle_since = None
                 if miner.running:
                     miner.stop()
                 if not dual.get("gate_open"):
                     open_gate()
-                    LOG.info("Opened inference gate for Crynux task")
-                last_mode = "busy"
+                    LOG.info("Opened inference gate for Crynux task status=%s", status)
+                last_mode = f"busy_{status}"
             else:
                 if dual.get("gate_open"):
                     close_gate()
